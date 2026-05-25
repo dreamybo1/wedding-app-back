@@ -171,12 +171,12 @@ app.post("/api/rsvp", async (req, res) => {
     });
 
     const tgMessage =
-      `🌸 **Ответ на приглашение**\n\n` +
-      `👤 **Гость:** ${updatedGuest.title} (${guestSlug})\n` +
-      `✅ **Придут:** ${updatedGuest.coming === "yes" ? "Да 🎉" : "Нет 😔"}\n` +
-      `🍽 **Меню:** ${updatedGuest.menu}\n` +
-      `🍷 **Напитки:** ${updatedGuest.drinks}\n` +
-      `🎵 **Песня:** ${updatedGuest.song}`;
+      `🌸 Ответ на приглашение\n\n` +
+      `👤 Гость: ${updatedGuest.title} (${guestSlug})\n` +
+      `✅ Придут: ${updatedGuest.coming === "yes" ? "Да 🎉" : "Нет 😔"}\n` +
+      `🍽 Меню: ${updatedGuest.menu}\n` +
+      `🍷 Напитки: ${updatedGuest.drinks}\n` +
+      `🎵 Песня: ${updatedGuest.song}`;
 
     const userIds = process.env.TELEGRAM_CHAT_IDS.split(",")
       .map((id) => parseInt(id.trim(), 10))
