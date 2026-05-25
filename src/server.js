@@ -133,7 +133,7 @@ bot.on("callback_query", async (callbackQuery) => {
       await bot.editMessageText(guestCard, {
         chat_id: chatId,
         message_id: messageId,
-        parse_mode: "Markdown",
+        parse_mode: "HTML",
         reply_markup: { inline_keyboard: inlineKeyboard },
       });
     } catch (error) {
@@ -188,7 +188,7 @@ app.post("/api/rsvp", async (req, res) => {
         {
           chat_id: userId,
           text: tgMessage,
-          parse_mode: "Markdown",
+          parse_mode: "HTML",
         }
       );
     }
