@@ -1,25 +1,67 @@
 require("dotenv").config();
+
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const axios = require("axios");
-const TelegramBot = require("node-telegram-bot-api"); // Добавили библиотеку
+const TelegramBot = require("node-telegram-bot-api");
+
 const Guest = require("./models/Guest");
 
 const app = express();
+
 app.use(cors());
 app.use(express.json());
 
-// Подключение к MongoDB Atlas
+// ======================================================
+// MongoDB
+// ======================================================
+
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log("🌱 Успешное подключение к MongoDB"))
-  .catch((err) => console.error("❌ Ошибка MongoDB:", err));
+  .then(() => {
+    console.log("🌱 Успешное подключение к MongoDB");
+  })
+  .catch((err) => {
+    console.error("❌ Ошибка MongoDB:", err);
+  });
 
-// Инициализация Telegram-бота (включаем polling для чтения сообщений)
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
+// ======================================================
+// Telegram Bot (WEBHOOK)
+// ======================================================
 
-// Функция для генерации Главного Меню (обычные текстовые кнопки)
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN);
+
+const webhookPath = `/bot${process.env.TELEGRAM_BOT_TOKEN}`;
+
+const webhookUrl = `${process.env.WEBHOOK_URL}${webhookPath}`;
+
+// Telegram webhook endpoint
+app.post(webhookPath, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+// Установка webhook
+const initTelegramWebhook = async () => {
+  try {
+    // Удаляем старый webhook/polling
+    await bot.deleteWebHook();
+
+    // Устанавливаем новый webhook
+    await bot.setWebHook(webhookUrl);
+
+    console.log("✅ Telegram webhook установлен:");
+    console.log(webhookUrl);
+  } catch (error) {
+    console.error("❌ Ошибка установки webhook:", error);
+  }
+};
+
+// ======================================================
+// Telegram Menu
+// ======================================================
+
 const sendMainMenu = (
   chatId,
   text = "Добро пожаловать в свадебный менеджер! Выберите действие:"
@@ -32,60 +74,34 @@ const sendMainMenu = (
   });
 };
 
-// --- ЛОГИКА ТЕЛЕГРАМ-БОТА ---
+// ======================================================
+// Telegram Bot Logic
+// ======================================================
 
-// Обработка текстовых команд (/start и кнопка меню)
+// Обработка сообщений
 bot.on("message", async (msg) => {
-  const chatId = msg.chat.id;
-  const text = msg.text;
+  try {
+    const chatId = msg.chat.id;
+    const text = msg.text;
 
-  if (text === "/start" || text === "↩️ Главное меню") {
-    return sendMainMenu(chatId);
-  }
+    if (!text) return;
 
-  if (text === "📋 Список гостей") {
-    try {
+    // Главное меню
+    if (text === "/start" || text === "↩️ Главное меню") {
+      return sendMainMenu(chatId);
+    }
+
+    // Список гостей
+    if (text === "📋 Список гостей") {
       const guests = await Guest.find({});
 
-      if (guests.length === 0) {
+      if (!guests.length) {
         return bot.sendMessage(chatId, "Список гостей пока пуст.");
       }
 
-      // Создаем инлайн-кнопки (под сообщением) для каждого гостя
       const keyboard = guests.map((guest) => {
         const statusEmoji = guest.coming === "yes" ? "✅" : "❌";
-        return [
-          {
-            text: `${statusEmoji} ${guest.title}`,
-            callback_data: `view_${guest._id}`, // Передаем ID (slug) гостя
-          },
-        ];
-      });
 
-      bot.sendMessage(chatId, "Выберите гостя для просмотра деталей:", {
-        reply_markup: {
-          inline_keyboard: keyboard,
-        },
-      });
-    } catch (error) {
-      console.error("Ошибка при получении списка гостей:", error);
-      bot.sendMessage(chatId, "⚠️ Не удалось загрузить список гостей.");
-    }
-  }
-});
-
-// Обработка нажатий на инлайн-кнопки (Callback Queries)
-bot.on("callback_query", async (callbackQuery) => {
-  const chatId = callbackQuery.message.chat.id;
-  const messageId = callbackQuery.message.message_id;
-  const data = callbackQuery.data;
-
-  // Если нажата кнопка возврата к списку из карточки гостя
-  if (data === "back_to_list") {
-    try {
-      const guests = await Guest.find({});
-      const keyboard = guests.map((guest) => {
-        const statusEmoji = guest.coming === "yes" ? "✅" : "❌";
         return [
           {
             text: `${statusEmoji} ${guest.title}`,
@@ -94,66 +110,117 @@ bot.on("callback_query", async (callbackQuery) => {
         ];
       });
 
-      // Редактируем старое сообщение, чтобы не спамить в чате
+      return bot.sendMessage(chatId, "Выберите гостя для просмотра деталей:", {
+        reply_markup: {
+          inline_keyboard: keyboard,
+        },
+      });
+    }
+  } catch (error) {
+    console.error("❌ Ошибка обработки message:", error);
+  }
+});
+
+// Обработка inline кнопок
+bot.on("callback_query", async (callbackQuery) => {
+  try {
+    const chatId = callbackQuery.message.chat.id;
+    const messageId = callbackQuery.message.message_id;
+    const data = callbackQuery.data;
+
+    // Назад к списку
+    if (data === "back_to_list") {
+      const guests = await Guest.find({});
+
+      const keyboard = guests.map((guest) => {
+        const statusEmoji = guest.coming === "yes" ? "✅" : "❌";
+
+        return [
+          {
+            text: `${statusEmoji} ${guest.title}`,
+            callback_data: `view_${guest._id}`,
+          },
+        ];
+      });
+
       await bot.editMessageText("Выберите гостя для просмотра деталей:", {
         chat_id: chatId,
         message_id: messageId,
-        reply_markup: { inline_keyboard: keyboard },
+        reply_markup: {
+          inline_keyboard: keyboard,
+        },
       });
-    } catch (error) {
-      bot.sendMessage(chatId, "⚠️ Ошибка обновления списка.");
+
+      return bot.answerCallbackQuery(callbackQuery.id);
     }
-    return bot.answerCallbackQuery(callbackQuery.id);
-  }
 
-  // Если нажата кнопка конкретного гостя (начинается с view_)
-  if (data.startsWith("view_")) {
-    const guestSlug = data.split("_")[1];
+    // Просмотр гостя
+    if (data.startsWith("view_")) {
+      const guestId = data.split("_")[1];
 
-    try {
-      const guest = await Guest.findById(guestSlug);
+      const guest = await Guest.findById(guestId);
 
       if (!guest) {
-        return bot.sendMessage(chatId, "Гость не найден в базе.");
+        await bot.answerCallbackQuery(callbackQuery.id);
+
+        return bot.sendMessage(chatId, "Гость не найден.");
       }
 
       const guestCard =
-        `👤 **Карточка гостя: ${guest.title}**\n` +
-        `🆔 URL-slug: \`${guestSlug}\`\n\n` +
-        `✅ **Придет:** ${guest.coming === "yes" ? "Да 🎉" : "Нет 😔"}\n` +
-        `🍽 **Меню:** ${guest.menu}\n` +
-        `🍷 **Напитки:** ${guest.drinks}\n` +
-        `🎵 **Песня:** ${guest.song}`;
+        `👤 *Карточка гостя: ${guest.title}*\n\n` +
+        `🆔 ID: \`${guestId}\`\n\n` +
+        `✅ *Придет:* ${guest.coming === "yes" ? "Да 🎉" : "Нет 😔"}\n` +
+        `🍽 *Меню:* ${guest.menu || "—"}\n` +
+        `🍷 *Напитки:* ${guest.drinks || "—"}\n` +
+        `🎵 *Песня:* ${guest.song || "—"}`;
 
-      // Кнопка под карточкой для быстрого возврата назад к списку
       const inlineKeyboard = [
-        [{ text: "⬅️ Назад к списку", callback_data: "back_to_list" }],
+        [
+          {
+            text: "⬅️ Назад к списку",
+            callback_data: "back_to_list",
+          },
+        ],
       ];
 
       await bot.editMessageText(guestCard, {
         chat_id: chatId,
         message_id: messageId,
         parse_mode: "Markdown",
-        reply_markup: { inline_keyboard: inlineKeyboard },
+        reply_markup: {
+          inline_keyboard: inlineKeyboard,
+        },
       });
-    } catch (error) {
-      console.error("Ошибка при просмотре гостя:", error);
-      bot.sendMessage(chatId, "⚠️ Не удалось загрузить карточку гостя.");
+
+      return bot.answerCallbackQuery(callbackQuery.id);
     }
-    return bot.answerCallbackQuery(callbackQuery.id);
+
+    await bot.answerCallbackQuery(callbackQuery.id);
+  } catch (error) {
+    console.error("❌ Ошибка callback_query:", error);
+
+    try {
+      await bot.answerCallbackQuery(callbackQuery.id, {
+        text: "Произошла ошибка",
+      });
+    } catch (_) {}
   }
 });
 
-// --- API ДЛЯ ФРОНТЕНДА ---
+// ======================================================
+// API
+// ======================================================
 
+// RSVP submit
 app.post("/api/rsvp", async (req, res) => {
   try {
     const { guestSlug, title, coming, menu, drinks, song } = req.body;
 
     if (!guestSlug) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Отсутствует guestSlug" });
+      return res.status(400).json({
+        success: false,
+        error: "Отсутствует guestSlug",
+      });
     }
 
     const guestData = {
@@ -170,52 +237,49 @@ app.post("/api/rsvp", async (req, res) => {
       upsert: true,
     });
 
+    // Telegram notification
     const tgMessage =
-      `🌸 **Ответ на приглашение**\n\n` +
-      `👤 **Гость:** ${updatedGuest.title} (${guestSlug})\n` +
-      `✅ **Придут:** ${updatedGuest.coming === "yes" ? "Да 🎉" : "Нет 😔"}\n` +
-      `🍽 **Меню:** ${updatedGuest.menu}\n` +
-      `🍷 **Напитки:** ${updatedGuest.drinks}\n` +
-      `🎵 **Песня:** ${updatedGuest.song}`;
+      `🌸 *Ответ на приглашение*\n\n` +
+      `👤 *Гость:* ${updatedGuest.title}\n` +
+      `🆔 ID: \`${guestSlug}\`\n\n` +
+      `✅ *Придут:* ${updatedGuest.coming === "yes" ? "Да 🎉" : "Нет 😔"}\n` +
+      `🍽 *Меню:* ${updatedGuest.menu}\n` +
+      `🍷 *Напитки:* ${updatedGuest.drinks}\n` +
+      `🎵 *Песня:* ${updatedGuest.song}`;
 
-    // Отправка моментального уведомления в ваш канал или личный чат
-    await axios.post(
-      `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`,
-      {
-        chat_id: process.env.TELEGRAM_CHAT_ID,
-        text: tgMessage,
-        parse_mode: "Markdown",
-      }
-    );
+    await bot.sendMessage(process.env.TELEGRAM_CHAT_ID, tgMessage, {
+      parse_mode: "Markdown",
+    });
 
-    res.status(200).json({ success: true, guest: updatedGuest });
+    return res.status(200).json({
+      success: true,
+      guest: updatedGuest,
+    });
   } catch (error) {
-    console.error("Ошибка при обработке RSVP:", error);
-    res
-      .status(500)
-      .json({ success: false, error: "Внутренняя ошибка сервера" });
+    console.error("❌ Ошибка RSVP:", error);
+
+    return res.status(500).json({
+      success: false,
+      error: "Внутренняя ошибка сервера",
+    });
   }
 });
 
-// Новый GET-эндпоинт для проверки активности (для cron-job.org)
-app.get("/api/health", (req, res) => {
-  res
-    .status(200)
-    .json({ status: "alive", message: "Wedding backend is working" });
-});
-
+// Получение RSVP
 app.get("/api/rsvp/:guestSlug", async (req, res) => {
   try {
     const { guestSlug } = req.params;
+
     const guest = await Guest.findById(guestSlug);
 
     if (!guest) {
-      // Если гостя нет в БД, возвращаем success: true, но данные null
-      return res.status(200).json({ success: true, data: null });
+      return res.status(200).json({
+        success: true,
+        data: null,
+      });
     }
 
-    // Возвращаем данные в формате, который ждет фронтенд
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       data: {
         coming: guest.coming,
@@ -225,14 +289,47 @@ app.get("/api/rsvp/:guestSlug", async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Ошибка при получении данных гостя:", error);
-    res
-      .status(500)
-      .json({ success: false, error: "Внутренняя ошибка сервера" });
+    console.error("❌ Ошибка получения гостя:", error);
+
+    return res.status(500).json({
+      success: false,
+      error: "Внутренняя ошибка сервера",
+    });
   }
 });
 
+// Healthcheck
+app.get("/api/health", (req, res) => {
+  res.status(200).json({
+    status: "alive",
+    message: "Wedding backend is working",
+  });
+});
+
+// ======================================================
+// Server
+// ======================================================
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Бэкенд-сервер запущен на порту ${PORT}`);
+
+app.listen(PORT, async () => {
+  console.log(`🚀 Сервер запущен на порту ${PORT}`);
+
+  await initTelegramWebhook();
+});
+
+// ======================================================
+// Graceful shutdown
+// ======================================================
+
+process.on("SIGINT", async () => {
+  console.log("🛑 SIGINT");
+
+  process.exit(0);
+});
+
+process.on("SIGTERM", async () => {
+  console.log("🛑 SIGTERM");
+
+  process.exit(0);
 });
