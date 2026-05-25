@@ -53,7 +53,7 @@ app.post("/api/rsvp", async (req, res) => {
 
     // Отправляем уведомление в Telegram (токены теперь лежат в безопасности на бэке)
     await axios.post(
-      `https://api.telegram.org/${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`,
+      `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`,
       {
         chat_id: process.env.TELEGRAM_CHAT_ID,
         text: tgMessage,
