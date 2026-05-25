@@ -108,7 +108,7 @@ bot.on("callback_query", async (callbackQuery) => {
 
   // Если нажата кнопка конкретного гостя (начинается с view_)
   if (data.startsWith("view_")) {
-    const guestSlug = data.split("_")[1];
+    const [, guestSlug] = data.split("view_");
 
     try {
       const guest = await Guest.findById(guestSlug);
@@ -118,12 +118,12 @@ bot.on("callback_query", async (callbackQuery) => {
       }
 
       const guestCard =
-        `👤 **Карточка гостя: ${guest.title}**\n` +
+        `👤 Карточка гостя: ${guest.title}\n` +
         `🆔 URL-slug: \`${guestSlug}\`\n\n` +
-        `✅ **Придет:** ${guest.coming === "yes" ? "Да 🎉" : "Нет 😔"}\n` +
-        `🍽 **Меню:** ${guest.menu}\n` +
-        `🍷 **Напитки:** ${guest.drinks}\n` +
-        `🎵 **Песня:** ${guest.song}`;
+        `✅ Придет: ${guest.coming === "yes" ? "Да 🎉" : "Нет 😔"}\n` +
+        `🍽 Меню: ${guest.menu}\n` +
+        `🍷 Напитки: ${guest.drinks}\n` +
+        `🎵 Песня: ${guest.song}`;
 
       // Кнопка под карточкой для быстрого возврата назад к списку
       const inlineKeyboard = [
