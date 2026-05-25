@@ -37,9 +37,15 @@ const webhookPath = `/bot${process.env.TELEGRAM_BOT_TOKEN}`;
 const webhookUrl = `${process.env.WEBHOOK_URL}${webhookPath}`;
 
 // Telegram webhook endpoint
-app.post(webhookPath, (req, res) => {
-  bot.processUpdate(req.body);
+app.post(webhookPath, async (req, res) => {
+  // СРАЗУ отвечаем Telegram
   res.sendStatus(200);
+
+  try {
+    await bot.processUpdate(req.body);
+  } catch (error) {
+    console.error("❌ processUpdate error:", error);
+  }
 });
 
 // Установка webhook
@@ -124,11 +130,20 @@ bot.on("message", async (msg) => {
 // Обработка inline кнопок
 bot.on("callback_query", async (callbackQuery) => {
   try {
+    if (!callbackQuery?.message) {
+      return bot.answerCallbackQuery(callbackQuery.id);
+    }
+
     const chatId = callbackQuery.message.chat.id;
     const messageId = callbackQuery.message.message_id;
     const data = callbackQuery.data;
 
-    // Назад к списку
+    await bot.answerCallbackQuery(callbackQuery.id);
+
+    // ==================================================
+    // BACK
+    // ==================================================
+
     if (data === "back_to_list") {
       const guests = await Guest.find({});
 
@@ -143,67 +158,77 @@ bot.on("callback_query", async (callbackQuery) => {
         ];
       });
 
-      await bot.editMessageText("Выберите гостя для просмотра деталей:", {
-        chat_id: chatId,
-        message_id: messageId,
-        reply_markup: {
-          inline_keyboard: keyboard,
-        },
-      });
+      try {
+        await bot.editMessageText("Выберите гостя для просмотра деталей:", {
+          chat_id: chatId,
+          message_id: messageId,
+          reply_markup: {
+            inline_keyboard: keyboard,
+          },
+        });
+      } catch (error) {
+        console.error("editMessageText error:", error);
 
-      return bot.answerCallbackQuery(callbackQuery.id);
+        await bot.sendMessage(chatId, "Выберите гостя для просмотра деталей:", {
+          reply_markup: {
+            inline_keyboard: keyboard,
+          },
+        });
+      }
+
+      return;
     }
 
-    // Просмотр гостя
+    // ==================================================
+    // VIEW GUEST
+    // ==================================================
+
     if (data.startsWith("view_")) {
-      const guestId = data.split("_")[1];
+      const guestId = data.replace("view_", "");
 
       const guest = await Guest.findById(guestId);
 
       if (!guest) {
-        await bot.answerCallbackQuery(callbackQuery.id);
-
         return bot.sendMessage(chatId, "Гость не найден.");
       }
 
       const guestCard =
-        `👤 *Карточка гостя: ${guest.title}*\n\n` +
-        `🆔 ID: \`${guestId}\`\n\n` +
-        `✅ *Придет:* ${guest.coming === "yes" ? "Да 🎉" : "Нет 😔"}\n` +
-        `🍽 *Меню:* ${guest.menu || "—"}\n` +
-        `🍷 *Напитки:* ${guest.drinks || "—"}\n` +
-        `🎵 *Песня:* ${guest.song || "—"}`;
+        `👤 Карточка гостя: ${guest.title}\n\n` +
+        `🆔 ID: ${guestId}\n\n` +
+        `✅ Придет: ${guest.coming === "yes" ? "Да 🎉" : "Нет 😔"}\n` +
+        `🍽 Меню: ${guest.menu || "—"}\n` +
+        `🍷 Напитки: ${guest.drinks || "—"}\n` +
+        `🎵 Песня: ${guest.song || "—"}`;
 
       const inlineKeyboard = [
         [
           {
-            text: "⬅️ Назад к списку",
+            text: "⬅️ Назад",
             callback_data: "back_to_list",
           },
         ],
       ];
 
-      await bot.editMessageText(guestCard, {
-        chat_id: chatId,
-        message_id: messageId,
-        parse_mode: "Markdown",
-        reply_markup: {
-          inline_keyboard: inlineKeyboard,
-        },
-      });
+      try {
+        await bot.editMessageText(guestCard, {
+          chat_id: chatId,
+          message_id: messageId,
+          reply_markup: {
+            inline_keyboard: inlineKeyboard,
+          },
+        });
+      } catch (error) {
+        console.error("editMessageText error:", error);
 
-      return bot.answerCallbackQuery(callbackQuery.id);
+        await bot.sendMessage(chatId, guestCard, {
+          reply_markup: {
+            inline_keyboard: inlineKeyboard,
+          },
+        });
+      }
     }
-
-    await bot.answerCallbackQuery(callbackQuery.id);
   } catch (error) {
-    console.error("❌ Ошибка callback_query:", error);
-
-    try {
-      await bot.answerCallbackQuery(callbackQuery.id, {
-        text: "Произошла ошибка",
-      });
-    } catch (_) {}
+    console.error("❌ callback_query error:", error);
   }
 });
 
@@ -311,6 +336,14 @@ app.get("/api/health", (req, res) => {
 // ======================================================
 
 const PORT = process.env.PORT || 3000;
+
+process.on("unhandledRejection", (reason) => {
+  console.error("UNHANDLED REJECTION:", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("UNCAUGHT EXCEPTION:", error);
+});
 
 app.listen(PORT, async () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
