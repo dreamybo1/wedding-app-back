@@ -178,15 +178,20 @@ app.post("/api/rsvp", async (req, res) => {
       `🍷 **Напитки:** ${updatedGuest.drinks}\n` +
       `🎵 **Песня:** ${updatedGuest.song}`;
 
+    const userIds = process.env.TELEGRAM_CHAT_IDS.split(",")
+      .map((id) => parseInt(id.trim(), 10))
+      .filter((id) => !isNaN(id));
     // Отправка моментального уведомления в ваш канал или личный чат
-    await axios.post(
-      `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`,
-      {
-        chat_id: process.env.TELEGRAM_CHAT_ID,
-        text: tgMessage,
-        parse_mode: "Markdown",
-      }
-    );
+    for await (const userId of userIds) {
+      await axios.post(
+        `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`,
+        {
+          chat_id: userId,
+          text: tgMessage,
+          parse_mode: "Markdown",
+        }
+      );
+    }
 
     res.status(200).json({ success: true, guest: updatedGuest });
   } catch (error) {
