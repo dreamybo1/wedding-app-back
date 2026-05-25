@@ -204,6 +204,34 @@ app.get("/api/health", (req, res) => {
     .json({ status: "alive", message: "Wedding backend is working" });
 });
 
+app.get("/api/rsvp/:guestSlug", async (req, res) => {
+  try {
+    const { guestSlug } = req.params;
+    const guest = await Guest.findById(guestSlug);
+
+    if (!guest) {
+      // Если гостя нет в БД, возвращаем success: true, но данные null
+      return res.status(200).json({ success: true, data: null });
+    }
+
+    // Возвращаем данные в формате, который ждет фронтенд
+    res.status(200).json({
+      success: true,
+      data: {
+        coming: guest.coming,
+        menu: guest.menu,
+        drinks: guest.drinks,
+        song: guest.song,
+      },
+    });
+  } catch (error) {
+    console.error("Ошибка при получении данных гостя:", error);
+    res
+      .status(500)
+      .json({ success: false, error: "Внутренняя ошибка сервера" });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Бэкенд-сервер запущен на порту ${PORT}`);
